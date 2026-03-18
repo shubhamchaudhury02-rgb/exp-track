@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Expense Tracker</title>
+
+<!-- PWA META -->
+<meta name="theme-color" content="#2a5298">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:'Segoe UI',sans-serif;background:linear-gradient(135deg,#1e3c72,#2a5298)}
+
+#splash{position:fixed;width:100%;height:100%;background:linear-gradient(135deg,#ff7e5f,#feb47b);display:flex;justify-content:center;align-items:center;flex-direction:column;color:#fff;z-index:9999;animation:fadeOut 1s ease forwards;animation-delay:2s}
+@keyframes fadeOut{to{opacity:0;visibility:hidden}}
+
+.container{max-width:420px;margin:auto;padding:15px;animation:slideUp .7s ease}
+@keyframes slideUp{from{opacity:0;transform:translateY(30px)}to{opacity:1}}
+
+.card{background:#fff;border-radius:18px;padding:15px;margin:12px 0;box-shadow:0 6px 18px rgba(0,0,0,0.2)}
+
+#total{font-size:26px;font-weight:bold;color:#2a5298}
+#insight{font-size:14px;color:#666;margin-top:5px}
+
+.summary{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.summary div{background:#f4f6fb;padding:10px;border-radius:10px;text-align:center;font-size:13px}
+
+input,select{width:100%;padding:10px;margin-top:8px;border-radius:10px;border:1px solid #ddd}
+button{padding:8px;border:none;border-radius:8px;background:#36d1dc;color:#fff;margin-top:8px}
+
+.table{width:100%;margin-top:10px;border-collapse:collapse}
+th,td{padding:6px;font-size:12px;text-align:center}
+th{background:#eee}
+tr{background:#f9f9f9}
+
+.delete{background:red;color:#fff}
+.edit{background:#5b86e5;color:#fff}
+
+.fab{position:fixed;bottom:20px;right:20px;width:55px;height:55px;border-radius:50%;background:#ff7e5f;color:#fff;font-size:26px;display:flex;align-items:center;justify-content:center;box-shadow:0 5px 15px rgba(0,0,0,0.3)}
+
+.modal{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;justify-content:center;align-items:center}
+.modal-content{background:#fff;padding:18px;border-radius:15px;width:90%;max-width:300px}
+</style>
+</head>
+<body>
+
+<div id="splash"><h2>💰Expense Tracker</h2><p>Loading...</p><p>Please Wait...</p></div>
+
+<div class="container">
+
+<div class="card">
+<h3>Total Expense</h3>
+<p id="total">₹0</p>
+<p id="insight"></p>
+</div>
+
+<div class="card summary" id="summary"></div>
+
+<div class="card">
+<input type="month" id="monthFilter" onchange="render()">
+<input type="text" id="search" placeholder="Search place" oninput="render()">
+</div>
+
+<div class="card">
+<canvas id="chart"></canvas>
+</div>
+
+<div class="card">
+<table class="table">
+<thead>
+<tr><th>#</th><th>₹</th><th>Cat</th><th>Place</th><th>Date</th><th>Action</th></tr>
+</thead>
+<tbody id="list"></tbody>
+</table>
+</div>
+
+</div>
+
+<div class="fab" onclick="modal.style.display='flex'">+</div>
+
+<div class="modal" id="modal">
+<div class="modal-content">
+<h3>Add Expense</h3>
+<select id="category">
+<option value="Household">Household</option>
+<option value="Utilities">Utilities</option>
+<option value="Food">Food</option>
+<option value="Personal">Personal</option>
+</select>
+<input type="number" id="amount" placeholder="Amount">
+<input type="text" id="place" placeholder="Place">
+<button onclick="addExpense()">Save</button>
+<button onclick="modal.style.display='none'">Cancel</button>
+</div>
+</div>
+
+<script>
+// REGISTER SERVICE WORKER
+if ('serviceWorker' in navigator) {
+ navigator.serviceWorker.register('sw.js');
+}
+
+let expenses=JSON.parse(localStorage.getItem('expenses'))||[];
+let chart;let editId=null;
+
+function addExpense(){
+let amount=document.getElementById('amount').value;
+let place=document.getElementById('place').value;
+let category=document.getElementById('category').value;
+if(!amount)return;
+let now=new Date();
+
+if(editId){
+expenses=expenses.map(e=>e.id===editId?{...e,amount:+amount,place,category}:e);
+editId=null;
+}else{
+expenses.push({id:Date.now(),category,amount:+amount,place,date:now.toISOString()});
+}
+
+localStorage.setItem('expenses',JSON.stringify(expenses));
+modal.style.display='none';
+document.getElementById('amount').value='';
+document.getElementById('place').value='';
+render();
+}
+
+function deleteExpense(id){
+if(!confirm('Delete this expense?'))return;
+expenses=expenses.filter(e=>e.id!==id);
+localStorage.setItem('expenses',JSON.stringify(expenses));
+render();
+}
+
+function editExpense(id){
+let e=expenses.find(x=>x.id===id);
+document.getElementById('amount').value=e.amount;
+document.getElementById('place').value=e.place;
+document.getElementById('category').value=e.category;
+modal.style.display='flex';editId=id;
+}
+
+function render(){
+let list=document.getElementById('list');
+let summary=document.getElementById('summary');
+list.innerHTML='';summary.innerHTML='';
+
+let month=document.getElementById('monthFilter').value;
+let search=document.getElementById('search').value.toLowerCase();
+
+let filtered=expenses.filter(e=>{
+return (!month||e.date.startsWith(month)) && (!search||e.place.toLowerCase().includes(search));
+});
+
+filtered.forEach((e,i)=>{
+list.innerHTML+=`<tr>
+<td>${i+1}</td>
+<td>₹${e.amount}</td>
+<td>${e.category}</td>
+<td>${e.place}</td>
+<td>${new Date(e.date).toLocaleDateString()}</td>
+<td>
+<button class='edit' onclick="editExpense(${e.id})">✏️</button>
+<button class='delete' onclick="deleteExpense(${e.id})">🗑️</button>
+</td>
+</tr>`;
+});
+
+let total=filtered.reduce((s,e)=>s+e.amount,0);
+document.getElementById('total').innerText='₹'+total;
+
+let cats=['Household','Utilities','Food','Personal'];
+let totals=cats.map(c=>filtered.filter(e=>e.category===c).reduce((s,e)=>s+e.amount,0));
+
+cats.forEach((c,i)=>{
+summary.innerHTML+=`<div>${c}<br><b>₹${totals[i]}</b></div>`;
+});
+
+let maxIndex=totals.indexOf(Math.max(...totals));
+document.getElementById('insight').innerText= totals[maxIndex]>0 ? `Top spending: ${cats[maxIndex]}` : '';
+
+updateChart();
+}
+
+function updateChart(){
+let cats=['Household','Utilities','Food','Personal'];
+let data=cats.map(c=>expenses.filter(e=>e.category===c).reduce((s,e)=>s+e.amount,0));
+
+let ctx=document.getElementById('chart');
+if(chart)chart.destroy();
+
+chart=new Chart(ctx,{
+ type:'doughnut',
+ data:{labels:cats,datasets:[{data:data,backgroundColor:['#ff7e5f','#36d1dc','#ffb347','#8e44ad']}]},
+ options:{plugins:{legend:{position:'bottom'}}}
+});
+}
+
+render();
+</script>
+
+</body>
+</html>
